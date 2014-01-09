@@ -113,14 +113,12 @@ module ActiveMerchant #:nodoc:
 
         add_amount(xml, money)
 
-        case credit_card_or_store_authorization
-        when ActiveMerchant::Billing::CreditCard
-          add_credit_card(xml, credit_card_or_store_authorization)
-        when String
+        if credit_card_or_store_authorization.is_a? String
           add_credit_card_token(xml, credit_card_or_store_authorization)
         else
-          raise ArgumentError.new "#{credit_card_or_store_authorization.inspect} is in invalid parameter. You may pass ActiveMerchant::Billing::CreditCard or String (from `response.authorization`)"
+          add_credit_card(xml, credit_card_or_store_authorization, options)
         end
+
         add_customer_data(xml, options)
         add_invoice(xml, options)
 
@@ -140,7 +138,7 @@ module ActiveMerchant #:nodoc:
       def build_store_request(credit_card, options)
         xml = Builder::XmlMarkup.new
 
-        add_credit_card(xml, credit_card)
+        add_credit_card(xml, credit_card, options)
         add_customer_data(xml, options)
 
         xml.target!
@@ -166,11 +164,22 @@ module ActiveMerchant #:nodoc:
         xml.tag! "DollarAmount", amount(money)
       end
 
-      def add_credit_card(xml, credit_card)
+      def add_credit_card(xml, credit_card, options)
         xml.tag! "Card_Number", credit_card.number
         xml.tag! "Expiry_Date", expdate(credit_card)
         xml.tag! "CardHoldersName", credit_card.name
         xml.tag! "CardType", credit_card.brand
+
+        add_credit_card_verification_strings(xml, credit_card, options)
+      end
+
+      def add_credit_card_verification_strings(xml, credit_card, options)
+        address = options[:billing_address] || options[:address]
+        if address
+          address_values = []
+          [:address1, :zip, :city, :state, :country].each { |part| address_values << address[part].to_s }
+          xml.tag! "VerificationStr1", address_values.join("|")
+        end
 
         if credit_card.verification_value?
           xml.tag! "CVD_Presence_Ind", "1"

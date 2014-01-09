@@ -38,8 +38,8 @@ module ActiveMerchant #:nodoc:
 
       APPROVED, DECLINED, ERROR, FRAUD_REVIEW = 1, 2, 3, 4
 
-      RESPONSE_CODE, RESPONSE_REASON_CODE, RESPONSE_REASON_TEXT = 0, 2, 3
-      AVS_RESULT_CODE, TRANSACTION_ID, CARD_CODE_RESPONSE_CODE  = 5, 6, 38
+      RESPONSE_CODE, RESPONSE_REASON_CODE, RESPONSE_REASON_TEXT, AUTHORIZATION_CODE = 0, 2, 3, 4
+      AVS_RESULT_CODE, TRANSACTION_ID, CARD_CODE_RESPONSE_CODE, CARDHOLDER_AUTH_CODE  = 5, 6, 38, 39
 
       self.default_currency = 'USD'
 
@@ -51,6 +51,7 @@ module ActiveMerchant #:nodoc:
       CARD_CODE_ERRORS = %w( N S )
       AVS_ERRORS = %w( A E N R W Z )
       AVS_REASON_CODES = %w(27 45)
+      TRANSACTION_ALREADY_ACTIONED = %w(310 311)
 
       AUTHORIZE_NET_ARB_NAMESPACE = 'AnetApi/xml/v1/schema/AnetApiSchema.xsd'
 
@@ -199,7 +200,7 @@ module ActiveMerchant #:nodoc:
       #   For example, to charge the customer once every three months the hash would be
       #   +:interval => { :unit => :months, :length => 3 }+ (REQUIRED)
       # * <tt>:duration</tt> -- A hash containing keys for the <tt>:start_date</tt> the subscription begins (also the date the
-      #   initial billing occurs) and the total number of billing <tt>:occurences</tt> or payments for the subscription. (REQUIRED)
+      #   initial billing occurs) and the total number of billing <tt>:occurrences</tt> or payments for the subscription. (REQUIRED)
       def recurring(money, creditcard, options={})
         requires!(options, :interval, :duration, :billing_address)
         requires!(options[:interval], :length, [:unit, :days, :months])
@@ -294,7 +295,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def success?(response)
-        response[:response_code] == APPROVED
+        response[:response_code] == APPROVED && TRANSACTION_ALREADY_ACTIONED.exclude?(response[:response_reason_code])
       end
 
       def fraud_review?(response)
@@ -310,7 +311,9 @@ module ActiveMerchant #:nodoc:
           :response_reason_text => fields[RESPONSE_REASON_TEXT],
           :avs_result_code => fields[AVS_RESULT_CODE],
           :transaction_id => fields[TRANSACTION_ID],
-          :card_code => fields[CARD_CODE_RESPONSE_CODE]
+          :card_code => fields[CARD_CODE_RESPONSE_CODE],
+          :authorization_code => fields[AUTHORIZATION_CODE],
+          :cardholder_authentication_code => fields[CARDHOLDER_AUTH_CODE]
         }
         results
       end
@@ -341,7 +344,7 @@ module ActiveMerchant #:nodoc:
         post[:description] = options[:description]
       end
 
-      def add_creditcard(post, creditcard)
+      def add_creditcard(post, creditcard, options={})
         post[:card_num]   = creditcard.number
         post[:card_code]  = creditcard.verification_value if creditcard.verification_value?
         post[:exp_date]   = expdate(creditcard)
@@ -350,22 +353,23 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_payment_source(params, source, options={})
-        case 
-        when source.class == ActiveMerchant::Billing::CreditCard then add_creditcard(params, source)
-        when source.class == ActiveMerchant::Billing::Check then add_check(params, source)
+        if card_brand(source) == "check"
+          add_check(params, source, options)
         else
-          raise ArgumentError, "Unsupported payment source. Must be either CreditCard or Check."
+          add_creditcard(params, source, options)
         end
       end
 
-      def add_check(post, check)
-        post[:method] = 'ECHECK'
+      def add_check(post, check, options)
+        post[:method] = "ECHECK"
+        post[:bank_name] = check.bank_name
         post[:bank_aba_code] = check.routing_number
         post[:bank_acct_num] = check.account_number
         post[:bank_acct_type] = check.account_type
-        post[:echeck_type] = 'WEB'
-        post[:checkname] = check.name
-        post[:account_holder_type] = check.account_holder_type
+        post[:echeck_type] = "WEB"
+        post[:bank_acct_name] = check.name
+        post[:bank_check_number] = check.number if check.number.present?
+        post[:recurring_billing] = (options[:recurring] ? "TRUE" : "FALSE")
       end
 
       def add_customer_data(post, options)
@@ -375,12 +379,21 @@ module ActiveMerchant #:nodoc:
         end
 
         if options.has_key? :customer
-          post[:cust_id] = options[:customer]
+          post[:cust_id] = options[:customer] if Float(options[:customer]) rescue nil
         end
 
         if options.has_key? :ip
           post[:customer_ip] = options[:ip]
         end
+
+        if options.has_key? :cardholder_authentication_value
+          post[:cardholder_authentication_value] = options[:cardholder_authentication_value]
+        end
+
+        if options.has_key? :authentication_indicator
+          post[:authentication_indicator] = options[:authentication_indicator]
+        end
+
       end
 
       # x_duplicate_window won't be sent by default, because sending it changes the response.
