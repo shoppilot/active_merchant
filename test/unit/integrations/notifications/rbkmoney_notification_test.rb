@@ -15,6 +15,7 @@ class RbkmoneyNotificationTest < Test::Unit::TestCase
     assert_equal '12.30', @rbkmoney.gross
     assert_equal 'RUR', @rbkmoney.currency
     assert_equal '2007-10-28 14:22:35', @rbkmoney.received_at
+    assert_equal 'CardPayment', @rbkmoney.payment_method
     assert_false @rbkmoney.test?
   end
 
@@ -44,6 +45,7 @@ serviceName=Kniga&\
 recipientAmount=12.30&\
 recipientCurrency=RUR&\
 paymentStatus=5&\
+paymentMethod=CardPayment&\
 userName=Petrov%20Alexander&\
 userEmail=admin@rbkmoney.ru&\
 paymentData=2007-10-28%2014:22:35&\

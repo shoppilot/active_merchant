@@ -14,6 +14,7 @@ module ActiveMerchant #:nodoc:
             recipientAmount
             recipientCurrency
             paymentStatus
+            paymentMethod
             userName
             userEmail
             paymentData
